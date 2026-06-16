@@ -117,13 +117,16 @@ export default function Home() {
         stageStatus: { ...pipelineState.stageStatus, planning: 'completed', rendering: 'in_progress' },
         progress: 55,
       });
+
+      // Auto-advance to rendering with the selected variant
+      await handleRender(selectedVariant);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Motion planning failed');
       setPipelineState({ stageStatus: { ...pipelineState.stageStatus, planning: 'failed' } });
     } finally {
       setIsProcessing(false);
     }
-  }, [projectId, sceneGraph, pipelineState.stageStatus]);
+  }, [projectId, sceneGraph, pipelineState.stageStatus, selectedVariant]);
 
   // Stage 3: Render animation
   const handleRender = useCallback(async (variantType: 'professional' | 'energetic') => {

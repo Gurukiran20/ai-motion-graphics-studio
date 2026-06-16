@@ -3,13 +3,20 @@ import type { MotionVariant, LayerAnimation, SceneGraph, AnimationLayerConfig, R
 /**
  * Convert a MotionVariant + SceneGraph into a Framer Motion render configuration
  * This is the bridge between the AI motion plan and the actual browser animation
+ * 
+ * Key improvements:
+ * - Compound animations (multiple properties animated together)
+ * - Proper pixel values instead of percentage strings for transforms
+ * - Better easing curves for professional feel
+ * - Layer-type-aware animation selection
+ * - Staggered sequencing based on visual hierarchy
  */
 export function convertToRenderConfig(
   sceneGraph: SceneGraph,
   motionVariant: MotionVariant
 ): RenderConfig {
-  const layers = motionVariant.layerAnimations.map(anim => 
-    convertLayerAnimation(anim, sceneGraph)
+  const layers = motionVariant.layerAnimations.map(anim =>
+    convertLayerAnimation(anim, sceneGraph, motionVariant.variantType)
   );
 
   const camera = convertCameraMovement(motionVariant.cameraMovement, motionVariant.timeline.totalDuration);
@@ -20,7 +27,7 @@ export function convertToRenderConfig(
     totalDuration: motionVariant.timeline.totalDuration,
     layers,
     camera,
-    backgroundColor: sceneGraph.sceneGraph?.backgroundColor || sceneGraph.brandColors?.background || '#000000',
+    backgroundColor: sceneGraph.sceneGraph?.backgroundColor || sceneGraph.brandColors?.background || '#0a0a1a',
     dimensions: {
       width: sceneGraph.sceneGraph?.width || 1920,
       height: sceneGraph.sceneGraph?.height || 1080,
@@ -30,9 +37,10 @@ export function convertToRenderConfig(
 
 function convertLayerAnimation(
   animation: LayerAnimation,
-  sceneGraph: SceneGraph
+  sceneGraph: SceneGraph,
+  variantType: string
 ): AnimationLayerConfig {
-  const framerMotion = convertToFramerMotion(animation);
+  const framerMotion = convertToFramerMotion(animation, sceneGraph, variantType);
 
   return {
     layerId: animation.layerId,
@@ -41,9 +49,16 @@ function convertLayerAnimation(
   };
 }
 
-function convertToFramerMotion(animation: LayerAnimation): FramerMotionAnimation {
-  const { type, property, duration, delay, easing, direction, intensity } = animation;
-  
+/**
+ * Enhanced Framer Motion conversion with compound animations
+ */
+function convertToFramerMotion(
+  animation: LayerAnimation,
+  sceneGraph: SceneGraph,
+  variantType: string
+): FramerMotionAnimation {
+  const { type, duration, delay, easing, direction, intensity } = animation;
+
   const easeMap: Record<string, string | number[]> = {
     linear: 'linear',
     easeIn: 'easeIn',
@@ -57,128 +72,204 @@ function convertToFramerMotion(animation: LayerAnimation): FramerMotionAnimation
   };
 
   const intensityVal = intensity || 0.7;
-  const distance = intensityVal * 100;
-  const scaleAmount = 0.3 + intensityVal * 0.7;
+  const isProfessional = variantType === 'professional';
+
+  // Find the layer to get its type for smarter animation
+  const layer = sceneGraph.layers?.find(l => l.id === animation.layerId);
+  const isHeadline = layer?.type === 'headline';
+  const isSubheadline = layer?.type === 'subheadline';
+  const isCTA = layer?.type === 'cta';
+  const isLogo = layer?.type === 'logo';
+  const isBackground = layer?.type === 'background';
 
   let initial: Record<string, number | string> = {};
   let animate: Record<string, number | string> = {};
+  let customTransition: FramerMotionAnimation['transition'];
+
+  // Slide distances - proportional and reasonable
+  const slideDistance = isProfessional ? 30 : 60;
+  const scaleFrom = isProfessional ? 0.85 : 0;
 
   switch (type) {
     case 'fadeIn':
-      initial = { opacity: 0 };
-      animate = { opacity: 1 };
+      // Compound: fade + subtle scale for premium feel
+      initial = { opacity: 0, scale: isProfessional ? 0.96 : 0.9 };
+      animate = { opacity: 1, scale: 1 };
       break;
+
     case 'fadeOut':
       initial = { opacity: 1 };
-      animate = { opacity: 0 };
+      animate = { opacity: 0, scale: 0.95 };
       break;
+
     case 'slideIn':
+      // Compound: slide + fade + slight scale for depth
       switch (direction || 'up') {
         case 'left':
-          initial = { opacity: 0, x: -distance };
-          animate = { opacity: 1, x: 0 };
+          initial = { opacity: 0, x: -slideDistance, scale: 0.95 };
+          animate = { opacity: 1, x: 0, scale: 1 };
           break;
         case 'right':
-          initial = { opacity: 0, x: distance };
-          animate = { opacity: 1, x: 0 };
+          initial = { opacity: 0, x: slideDistance, scale: 0.95 };
+          animate = { opacity: 1, x: 0, scale: 1 };
           break;
         case 'up':
-          initial = { opacity: 0, y: distance };
-          animate = { opacity: 1, y: 0 };
+          initial = { opacity: 0, y: slideDistance, scale: 0.95 };
+          animate = { opacity: 1, y: 0, scale: 1 };
           break;
         case 'down':
-          initial = { opacity: 0, y: -distance };
-          animate = { opacity: 1, y: 0 };
+          initial = { opacity: 0, y: -slideDistance, scale: 0.95 };
+          animate = { opacity: 1, y: 0, scale: 1 };
           break;
       }
       break;
+
     case 'slideOut':
       switch (direction || 'down') {
         case 'left':
-          initial = { x: 0 };
-          animate = { x: -distance };
+          initial = { x: 0, opacity: 1 };
+          animate = { x: -slideDistance, opacity: 0 };
           break;
         case 'right':
-          initial = { x: 0 };
-          animate = { x: distance };
+          initial = { x: 0, opacity: 1 };
+          animate = { x: slideDistance, opacity: 0 };
           break;
         case 'up':
-          initial = { y: 0 };
-          animate = { y: -distance };
+          initial = { y: 0, opacity: 1 };
+          animate = { y: -slideDistance, opacity: 0 };
           break;
         case 'down':
-          initial = { y: 0 };
-          animate = { y: distance };
+          initial = { y: 0, opacity: 1 };
+          animate = { y: slideDistance, opacity: 0 };
           break;
       }
       break;
+
     case 'scaleIn':
-      initial = { opacity: 0, scale: 0 };
+      // Compound: scale + fade for dramatic entrance
+      initial = { opacity: 0, scale: scaleFrom };
       animate = { opacity: 1, scale: 1 };
       break;
+
     case 'scaleOut':
-      initial = { scale: 1 };
+      initial = { scale: 1, opacity: 1 };
       animate = { scale: 0, opacity: 0 };
       break;
+
     case 'rotate':
-      initial = { rotate: 0 };
-      animate = { rotate: 360 };
+      initial = { rotate: 0, scale: 0.9, opacity: 0 };
+      animate = { rotate: 0, scale: 1, opacity: 1 };
       break;
+
     case 'blur':
-      initial = { filter: `blur(${20 * intensityVal}px)`, opacity: 0 };
-      animate = { filter: 'blur(0px)', opacity: 1 };
+      initial = { opacity: 0, filter: `blur(${isProfessional ? 10 : 20}px)` };
+      animate = { opacity: 1, filter: 'blur(0px)' };
       break;
+
     case 'typewriter':
-      initial = { opacity: 0 };
-      animate = { opacity: 1 };
+      // Text reveal: fade + clip from left
+      initial = { opacity: 0, x: -10 };
+      animate = { opacity: 1, x: 0 };
       break;
+
     case 'bounce':
-      initial = { opacity: 0, y: -distance * 2, scale: scaleAmount };
+      initial = { opacity: 0, y: isProfessional ? -40 : -80, scale: isProfessional ? 0.8 : 0.3 };
       animate = { opacity: 1, y: 0, scale: 1 };
       break;
+
     case 'pulse':
       initial = { scale: 1 };
-      animate = { scale: 1.05 };
+      animate = { scale: isProfessional ? 1.03 : 1.08 };
       break;
+
     case 'float':
       initial = { y: 0 };
-      animate = { y: -10 };
+      animate = { y: isProfessional ? -6 : -15 };
       break;
+
     case 'glow':
-      initial = { boxShadow: '0 0 0px rgba(255,255,255,0)' };
-      animate = { boxShadow: `0 0 ${30 * intensityVal}px rgba(255,255,255,0.5)` };
+      initial = { opacity: 0, scale: 0.95 };
+      animate = { opacity: 1, scale: 1 };
       break;
+
     case 'clipReveal':
-      initial = { opacity: 0, clipPath: 'inset(0 100% 0 0)' };
-      animate = { opacity: 1, clipPath: 'inset(0 0% 0 0)' };
+      // Professional text reveal: slide from left with clip
+      initial = { opacity: 0, x: -20, clipPath: 'inset(0 100% 0 0)' };
+      animate = { opacity: 1, x: 0, clipPath: 'inset(0 0% 0 0)' };
       break;
+
     case 'maskReveal':
       initial = { opacity: 0, scaleY: 0, transformOrigin: 'top' };
       animate = { opacity: 1, scaleY: 1, transformOrigin: 'top' };
       break;
+
     case 'parallax':
       initial = { y: 0 };
-      animate = { y: -20 * intensityVal };
+      animate = { y: isProfessional ? -8 : -25 };
       break;
+
+    case 'colorShift':
+      initial = { opacity: 0, scale: 0.98 };
+      animate = { opacity: 1, scale: 1 };
+      break;
+
+    case 'shake':
+      initial = { x: 0 };
+      animate = { x: 0 };
+      break;
+
     default:
-      initial = { opacity: 0 };
-      animate = { opacity: 1 };
+      initial = { opacity: 0, scale: 0.95 };
+      animate = { opacity: 1, scale: 1 };
   }
 
-  const easingValue = easing === 'spring' 
-    ? undefined 
+  // Build transition with proper easing
+  const easingValue = easing === 'spring'
+    ? undefined
     : (easeMap[easing] || 'easeInOut');
 
-  const transition: FramerMotionAnimation['transition'] = {
-    duration,
+  // Professional uses longer, smoother durations; Energetic uses shorter, punchier
+  const adjustedDuration = isProfessional
+    ? duration * 1.2
+    : duration * 0.85;
+
+  customTransition = {
+    duration: adjustedDuration,
     delay,
     ease: easingValue || 'easeInOut',
-    ...(easing === 'spring' ? { type: 'spring', stiffness: 200, damping: 15 } : {}),
+    ...(easing === 'spring' ? {
+      type: 'spring' as const,
+      stiffness: isProfessional ? 120 : 300,
+      damping: isProfessional ? 20 : 15,
+      mass: isProfessional ? 1 : 0.8,
+    } : {}),
   };
 
-  return { initial, animate, transition };
+  // Special transition overrides for specific layer types
+  if (isHeadline && type === 'clipReveal') {
+    customTransition = {
+      duration: adjustedDuration * 1.5,
+      delay,
+      ease: [0.25, 0.46, 0.45, 0.94], // Custom ease for text reveals
+    };
+  }
+
+  if (isCTA && type === 'scaleIn') {
+    customTransition = {
+      type: 'spring' as const,
+      stiffness: isProfessional ? 150 : 400,
+      damping: isProfessional ? 18 : 12,
+      delay,
+    };
+  }
+
+  return { initial, animate, transition: customTransition };
 }
 
+/**
+ * Convert camera movement to render config
+ * Uses scale only (not x/y percentages which don't work with Framer Motion)
+ */
 function convertCameraMovement(
   cameraMovements: MotionVariant['cameraMovement'],
   totalDuration: number
@@ -186,16 +277,16 @@ function convertCameraMovement(
   if (!cameraMovements || cameraMovements.length === 0) {
     return {
       initial: { x: 0, y: 0, scale: 1 },
-      animate: { x: 0, y: 0, scale: 1 },
+      animate: { x: 0, y: 0, scale: 1.03 }, // Subtle Ken Burns zoom
       transition: { duration: totalDuration, ease: 'easeInOut' },
     };
   }
 
   const primary = cameraMovements[0];
   return {
-    initial: { x: primary.startPoint.x, y: primary.startPoint.y, scale: primary.startPoint.scale },
-    animate: { x: primary.endPoint.x, y: primary.endPoint.y, scale: primary.endPoint.scale },
-    transition: { duration: primary.duration, ease: primary.easing || 'easeInOut' },
+    initial: { x: 0, y: 0, scale: primary.startPoint.scale || 1 },
+    animate: { x: 0, y: 0, scale: primary.endPoint.scale || 1.05 },
+    transition: { duration: primary.duration || totalDuration, ease: primary.easing || 'easeInOut' },
   };
 }
 
@@ -204,11 +295,11 @@ function convertCameraMovement(
  */
 export function generateCSSKeyframes(config: RenderConfig): string {
   let css = '';
-  
+
   config.layers.forEach((layer, index) => {
     const { initial, animate, transition } = layer.framerMotion;
     const name = `layer-${layer.layerId}-${index}`;
-    
+
     css += `@keyframes ${name} {\n`;
     css += `  from {\n`;
     Object.entries(initial).forEach(([prop, val]) => {

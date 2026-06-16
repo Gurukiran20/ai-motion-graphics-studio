@@ -10,24 +10,36 @@ async function getZAI() {
   return zaiInstance;
 }
 
-const SCENE_ANALYSIS_PROMPT = `You are an expert motion graphics designer and visual analyst. Analyze the provided design image and extract a complete structured scene representation.
+const SCENE_ANALYSIS_PROMPT = `You are an expert motion graphics designer and visual analyst specializing in decomposing static designs into animation-ready scene graphs. Your analysis will be used to create professional motion graphics animations.
+
+CRITICAL: Be extremely precise about positions and sizes. These will be used to recreate the design as an animation.
 
 Your analysis must identify and describe:
 
-1. **Headline**: Main headline text, its position (as percentage of image: x, y, width, height), font characteristics, color
-2. **Subheadline**: Secondary text, position, style
-3. **CTA (Call to Action)**: Button or CTA text, position, style including background color and border radius
-4. **Logo**: Position and description of any logo
-5. **Layers**: All visual layers in the design, from background to foreground, each with:
-   - Type (headline, subheadline, cta, logo, image, icon, background, foreground, decorative, text)
-   - Position as percentages (x, y, width, height where x,y is top-left corner)
-   - z-index order
-   - Color, font size, font weight where applicable
-   - Content (text for text layers)
-6. **Visual Hierarchy**: Reading order and importance levels
-7. **Brand Colors**: Primary, secondary, accent, background, text colors (as hex)
+1. **Headline**: The MAIN, LARGEST text in the design. Its exact position as percentage of image (x, y, width, height where x,y is top-left corner), font size (estimate in px relative to 1920px width), weight, color
+2. **Subheadline**: Secondary supporting text, position, style
+3. **CTA (Call to Action)**: Any button, link, or call-to-action element. Include its background color and border radius for accurate recreation
+4. **Logo**: Position of any logo or brand mark
+5. **Layers**: ALL visual elements in the design, decomposed from background to foreground. Each layer must have:
+   - A UNIQUE id (format: layer_0, layer_1, etc.)
+   - Type: one of [headline, subheadline, cta, logo, image, icon, background, foreground, decorative, text]
+   - Position as percentages (x, y, width, height where x,y is top-left corner, all 0-100)
+   - z-index: 0 for background, incrementing by 1 for each layer going forward
+   - Color as hex code
+   - fontSize (in px, relative to 1920px width), fontWeight, fontFamily where applicable
+   - content: the actual text for text layers
+   - borderRadius: for buttons and rounded elements
+   - opacity: 1.0 for fully visible, less for semi-transparent elements
+6. **Visual Hierarchy**: Reading order and importance levels - this determines animation timing
+7. **Brand Colors**: Extract ALL dominant colors as hex codes
 8. **Typography**: Font families, weights, sizes used
-9. **Layout Structure**: Layout type (centered, left-aligned, hero, split, etc.), direction, spacing, alignment
+9. **Layout Structure**: Layout type, direction, spacing, alignment
+
+IMPORTANT POSITIONING RULES:
+- Positions must be REALISTIC percentages that would recreate the layout
+- Background layer should be at position (0,0) with (100,100) dimensions
+- Text layers should be sized to fit their text content tightly
+- Layer positions should NOT overlap significantly (unless they're overlapping in the design)
 
 Position coordinates should be percentages (0-100) relative to the image dimensions.
 
@@ -116,60 +128,62 @@ Be thorough and precise. Every visual element must be captured. Positions must b
 function buildFallbackSceneGraph(): SceneGraph {
   return {
     headline: {
-      text: 'Design Headline',
-      position: { x: 10, y: 20, width: 80, height: 15 },
-      style: { fontSize: 48, fontWeight: 'bold', color: '#ffffff', fontFamily: 'sans-serif' },
+      text: 'Your Design',
+      position: { x: 15, y: 25, width: 70, height: 18 },
+      style: { fontSize: 64, fontWeight: '800', color: '#ffffff', fontFamily: 'sans-serif' },
     },
     subheadline: {
-      text: 'Subtitle text',
-      position: { x: 10, y: 40, width: 80, height: 10 },
-      style: { fontSize: 24, fontWeight: 'normal', color: '#cccccc', fontFamily: 'sans-serif' },
+      text: 'Transform static designs into stunning motion graphics',
+      position: { x: 15, y: 48, width: 70, height: 10 },
+      style: { fontSize: 28, fontWeight: '400', color: '#94a3b8', fontFamily: 'sans-serif' },
     },
     cta: {
       text: 'Get Started',
-      position: { x: 30, y: 60, width: 40, height: 8 },
-      style: { fontSize: 18, fontWeight: 'bold', color: '#ffffff', backgroundColor: '#4F46E5', borderRadius: 8 },
+      position: { x: 35, y: 65, width: 30, height: 7 },
+      style: { fontSize: 20, fontWeight: '600', color: '#ffffff', backgroundColor: '#10b981', borderRadius: 50 },
     },
     logo: {
-      position: { x: 5, y: 5, width: 15, height: 8 },
+      position: { x: 5, y: 5, width: 12, height: 6 },
     },
     layers: [
-      { id: 'layer_0', type: 'background', label: 'Background', position: { x: 0, y: 0, width: 100, height: 100 }, zIndex: 0, color: '#1a1a2e', opacity: 1, borderRadius: 0 },
-      { id: 'layer_1', type: 'headline', label: 'Headline', content: 'Design Headline', position: { x: 10, y: 20, width: 80, height: 15 }, zIndex: 10, color: '#ffffff', fontSize: 48, fontWeight: 'bold', fontFamily: 'sans-serif', opacity: 1, borderRadius: 0 },
-      { id: 'layer_2', type: 'subheadline', label: 'Subheadline', content: 'Subtitle text', position: { x: 10, y: 40, width: 80, height: 10 }, zIndex: 9, color: '#cccccc', fontSize: 24, fontWeight: 'normal', fontFamily: 'sans-serif', opacity: 1, borderRadius: 0 },
-      { id: 'layer_3', type: 'cta', label: 'CTA Button', content: 'Get Started', position: { x: 30, y: 60, width: 40, height: 8 }, zIndex: 11, color: '#ffffff', fontSize: 18, fontWeight: 'bold', fontFamily: 'sans-serif', opacity: 1, borderRadius: 8 },
-      { id: 'layer_4', type: 'logo', label: 'Logo', position: { x: 5, y: 5, width: 15, height: 8 }, zIndex: 12, opacity: 1, borderRadius: 0 },
+      { id: 'layer_0', type: 'background', label: 'Background', position: { x: 0, y: 0, width: 100, height: 100 }, zIndex: 0, color: '#0f172a', opacity: 1, borderRadius: 0 },
+      { id: 'layer_1', type: 'foreground', label: 'Gradient Overlay', position: { x: 0, y: 0, width: 100, height: 100 }, zIndex: 1, color: '#1e293b', opacity: 0.3, borderRadius: 0 },
+      { id: 'layer_2', type: 'decorative', label: 'Accent Shape', position: { x: 60, y: 10, width: 35, height: 80 }, zIndex: 2, color: '#10b981', opacity: 0.08, borderRadius: 24 },
+      { id: 'layer_3', type: 'logo', label: 'Logo', position: { x: 5, y: 5, width: 12, height: 6 }, zIndex: 15, opacity: 1, borderRadius: 4 },
+      { id: 'layer_4', type: 'headline', label: 'Headline', content: 'Your Design', position: { x: 15, y: 25, width: 70, height: 18 }, zIndex: 10, color: '#ffffff', fontSize: 64, fontWeight: '800', fontFamily: 'sans-serif', opacity: 1, borderRadius: 0 },
+      { id: 'layer_5', type: 'subheadline', label: 'Subheadline', content: 'Transform static designs into stunning motion graphics', position: { x: 15, y: 48, width: 70, height: 10 }, zIndex: 9, color: '#94a3b8', fontSize: 28, fontWeight: '400', fontFamily: 'sans-serif', opacity: 1, borderRadius: 0 },
+      { id: 'layer_6', type: 'cta', label: 'CTA Button', content: 'Get Started', position: { x: 35, y: 65, width: 30, height: 7 }, zIndex: 12, color: '#ffffff', fontSize: 20, fontWeight: '600', fontFamily: 'sans-serif', opacity: 1, borderRadius: 50 },
     ],
     hierarchy: {
-      order: ['layer_1', 'layer_2', 'layer_3', 'layer_4', 'layer_0'],
+      order: ['layer_4', 'layer_5', 'layer_6', 'layer_3', 'layer_2', 'layer_1', 'layer_0'],
       levels: [
-        { level: 1, layerIds: ['layer_1'], description: 'Primary headline' },
-        { level: 2, layerIds: ['layer_3'], description: 'Call to action' },
-        { level: 3, layerIds: ['layer_2'], description: 'Supporting text' },
-        { level: 4, layerIds: ['layer_4'], description: 'Logo' },
+        { level: 1, layerIds: ['layer_4'], description: 'Primary headline' },
+        { level: 2, layerIds: ['layer_6'], description: 'Call to action' },
+        { level: 3, layerIds: ['layer_5'], description: 'Supporting text' },
+        { level: 4, layerIds: ['layer_3'], description: 'Logo' },
       ],
     },
     brandColors: {
-      primary: '#4F46E5',
-      secondary: '#7C3AED',
-      accent: '#F59E0B',
-      background: '#1A1A2E',
-      text: '#FFFFFF',
-      additional: [],
+      primary: '#10b981',
+      secondary: '#6366f1',
+      accent: '#f59e0b',
+      background: '#0f172a',
+      text: '#ffffff',
+      additional: ['#1e293b', '#94a3b8'],
     },
     typography: {
       headlineFont: 'sans-serif',
-      headlineWeight: 'bold',
-      headlineSize: '48px',
+      headlineWeight: '800',
+      headlineSize: '64px',
       bodyFont: 'sans-serif',
-      bodyWeight: 'normal',
-      bodySize: '24px',
+      bodyWeight: '400',
+      bodySize: '28px',
       ctaFont: 'sans-serif',
-      ctaWeight: 'bold',
-      ctaSize: '18px',
+      ctaWeight: '600',
+      ctaSize: '20px',
     },
     layout: {
-      type: 'centered',
+      type: 'hero',
       direction: 'vertical',
       spacing: 'normal',
       alignment: 'center',
@@ -181,7 +195,7 @@ function buildFallbackSceneGraph(): SceneGraph {
       width: 1920,
       height: 1080,
       aspectRatio: '16:9',
-      backgroundColor: '#1a1a2e',
+      backgroundColor: '#0f172a',
       globalOpacity: 1,
     },
   };
