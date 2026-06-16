@@ -1,0 +1,116 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  imageUrl    String
+  status      String   @default("uploaded") // uploaded, analyzing, analyzed, planning, planned, rendering, rendered, evaluating, evaluated, complete
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  sceneAnalysis   SceneAnalysis?
+  motionVariants  MotionVariant[]
+  renderJobs      RenderJob[]
+  feedbackEntries FeedbackEntry[]
+  qualityReports  QualityReport[]
+}
+
+model SceneAnalysis {
+  id          String   @id @default(cuid())
+  projectId   String   @unique
+  headline    String?
+  subheadline String?
+  cta         String?
+  logo        String?
+  layers      String   // JSON string of layers
+  hierarchy   String   // JSON string of hierarchy
+  sceneGraph  String   // JSON string of full scene graph
+  brandColors String   // JSON string of brand colors
+  typography  String   // JSON string of typography info
+  layout      String   // JSON string of layout structure
+  rawAnalysis String   // Raw VLM analysis text
+  createdAt   DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model MotionVariant {
+  id             String   @id @default(cuid())
+  projectId      String
+  variantType    String   // "professional" or "energetic"
+  timeline       String   // JSON string of timeline
+  animations     String   // JSON string of layer animations
+  cameraMovement String   // JSON string of camera movement
+  transitions    String   // JSON string of transitions
+  rationale      String   // Motion rationale text
+  motionPlan     String   // JSON string of full motion plan
+  createdAt      DateTime @default(now())
+
+  project    Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  renderJobs RenderJob[]
+}
+
+model RenderJob {
+  id             String   @id @default(cuid())
+  projectId      String
+  variantId      String
+  status         String   @default("pending") // pending, rendering, completed, failed
+  renderProgress Int      @default(0)
+  animationConfig String  // JSON string of Framer Motion animation config
+  createdAt      DateTime @default(now())
+
+  project     Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  variant     MotionVariant  @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  evaluation  Evaluation?
+}
+
+model Evaluation {
+  id             String   @id @default(cuid())
+  renderJobId    String   @unique
+  scores         String   // JSON string of scores
+  issues         String   // JSON string of issues
+  recommendations String // JSON string of recommendations
+  overallScore   Float
+  passed         Boolean
+  createdAt      DateTime @default(now())
+
+  renderJob RenderJob @relation(fields: [renderJobId], references: [id], onDelete: Cascade)
+}
+
+model FeedbackEntry {
+  id                String   @id @default(cuid())
+  projectId         String
+  feedback          String
+  interpretedIntent String?
+  sceneGraphUpdate  String?  // JSON string
+  motionPlanUpdate  String?  // JSON string
+  applied           Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model QualityReport {
+  id                   String   @id @default(cuid())
+  projectId            String
+  textReadability      Float
+  layoutIntegrity      Float
+  brandingConsistency  Float
+  motionSmoothness     Float
+  timingQuality        Float
+  professionalAppearance Float
+  overallScore         Float
+  passed               Boolean
+  issues               String   // JSON string
+  details              String   // JSON string of full report
+  createdAt            DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
