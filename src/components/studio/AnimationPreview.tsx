@@ -2,11 +2,11 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { RenderConfig, SceneGraph, AnimationLayerConfig } from '@/lib/types';
+import type { RenderConfig, SceneGraph, AnimationLayerConfig, FramerMotionAnimation } from '@/lib/types';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Play, Pause, RotateCcw, Maximize2, Minimize2, Volume2, VolumeX } from 'lucide-react';
+import { Play, Pause, RotateCcw, Maximize2, Minimize2 } from 'lucide-react';
 
 interface AnimationPreviewProps {
   renderConfig: RenderConfig;
@@ -147,7 +147,7 @@ function PremiumTextLayer({
   brandColors: SceneGraph['brandColors'];
   position: { x: number; y: number; width: number; height: number };
   isPlaying: boolean;
-  framerMotion: AnimationLayerConfig['framerMotion'];
+  framerMotion: FramerMotionAnimation;
   animationKey: number;
 }) {
   const { initial, animate, transition } = framerMotion;
@@ -176,12 +176,14 @@ function PremiumTextLayer({
       {isCTA ? (
         <motion.div
           className="relative"
-          animate={isPlaying ? { boxShadow: [
-            `0 0 0px ${style.backgroundColor || brandColors.primary}`,
-            `0 0 20px ${style.backgroundColor || brandColors.primary}60`,
-            `0 0 40px ${style.backgroundColor || brandColors.primary}30`,
-            `0 0 20px ${style.backgroundColor || brandColors.primary}60`,
-          ] } : {}}
+          animate={isPlaying ? { 
+            boxShadow: [
+              `0 0 0px ${style.backgroundColor || brandColors.primary}`,
+              `0 0 20px ${style.backgroundColor || brandColors.primary}60`,
+              `0 0 40px ${style.backgroundColor || brandColors.primary}30`,
+              `0 0 20px ${style.backgroundColor || brandColors.primary}60`,
+            ] 
+          } : {}}
           transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
         >
           <div
@@ -261,8 +263,8 @@ function AnimatedLayer({
   const pos = layer.position;
   const isTextLayer = ['headline', 'subheadline', 'cta', 'text'].includes(layer.type);
   const brandColors = sceneGraph.brandColors || {
-    primary: '#4F46E5', secondary: '#7C3AED', accent: '#F59E0B',
-    background: '#1A1A2E', text: '#FFFFFF', additional: [],
+    primary: '#10b981', secondary: '#6366f1', accent: '#F59E0B',
+    background: '#0f172a', text: '#FFFFFF', additional: [],
   };
 
   // For text layers, use PremiumTextLayer
@@ -403,8 +405,8 @@ export function AnimationPreview({ renderConfig, sceneGraph, imageUrl }: Animati
 
   const totalDuration = renderConfig.totalDuration || 6;
   const brandColors = sceneGraph.brandColors || {
-    primary: '#4F46E5', secondary: '#7C3AED', accent: '#F59E0B',
-    background: '#1A1A2E', text: '#FFFFFF', additional: [],
+    primary: '#10b981', secondary: '#6366f1', accent: '#F59E0B',
+    background: '#0f172a', text: '#FFFFFF', additional: [],
   };
 
   const handlePlay = useCallback(() => {

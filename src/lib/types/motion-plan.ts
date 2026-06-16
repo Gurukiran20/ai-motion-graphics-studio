@@ -74,12 +74,13 @@ export interface FramerMotionAnimation {
   initial: Record<string, number | string>;
   animate: Record<string, number | string>;
   transition: {
-    duration: number;
+    duration?: number;
     delay: number;
-    ease: string | number[];
+    ease?: string | number[];
     type?: string;
     stiffness?: number;
     damping?: number;
+    mass?: number;
   };
 }
 

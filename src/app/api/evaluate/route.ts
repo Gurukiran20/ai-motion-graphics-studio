@@ -67,30 +67,9 @@ export async function POST(request: NextRequest) {
     // Call the evaluation agent
     const evaluationResult = await evaluateMotion(sceneGraph, motionVariantData);
 
-    // Save the evaluation (linked to render job if exists)
-    const evaluationData: {
-      scores: string;
-      issues: string;
-      recommendations: string;
-      overallScore: number;
-      passed: boolean;
-      renderJobId: string;
-    } = {
-      scores: JSON.stringify(evaluationResult.scores),
-      issues: JSON.stringify(evaluationResult.issues),
-      recommendations: JSON.stringify(evaluationResult.recommendations),
-      overallScore: evaluationResult.overallScore,
-      passed: evaluationResult.passed,
-      renderJobId: renderJob?.id || '',
-    };
-
-    let evaluation;
-    if (renderJob) {
-      evaluation = await db.evaluation.create({
-        data: evaluationData,
-      });
-    } else {
-      // Create a temporary render job first
+    // Get render job id (create temp one if needed)
+    let renderJobId = renderJob?.id;
+    if (!renderJobId) {
       const tempRenderJob = await db.renderJob.create({
         data: {
           projectId,
@@ -100,13 +79,29 @@ export async function POST(request: NextRequest) {
           animationConfig: '{}',
         },
       });
-      evaluation = await db.evaluation.create({
-        data: {
-          ...evaluationData,
-          renderJobId: tempRenderJob.id,
-        },
-      });
+      renderJobId = tempRenderJob.id;
     }
+
+    // Delete any existing evaluation for this render job to avoid unique constraint
+    try {
+      await db.evaluation.deleteMany({
+        where: { renderJobId },
+      });
+    } catch {
+      // Ignore if no existing evaluation
+    }
+
+    // Save the evaluation
+    const evaluation = await db.evaluation.create({
+      data: {
+        scores: JSON.stringify(evaluationResult.scores),
+        issues: JSON.stringify(evaluationResult.issues),
+        recommendations: JSON.stringify(evaluationResult.recommendations),
+        overallScore: evaluationResult.overallScore,
+        passed: evaluationResult.passed,
+        renderJobId,
+      },
+    });
 
     // Update project status to evaluated
     await db.project.update({
