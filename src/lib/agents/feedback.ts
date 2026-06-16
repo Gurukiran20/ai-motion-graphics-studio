@@ -51,32 +51,63 @@ export async function interpretFeedback(
   sceneGraph: SceneGraph,
   currentVariant: MotionVariant
 ): Promise<FeedbackResult> {
-  const zai = await getZAI();
-
-  const response = await zai.chat.completions.create({
-    messages: [
-      {
-        role: 'assistant',
-        content: 'You are an expert motion graphics designer who interprets feedback into structured JSON edits. Always respond with valid JSON only.'
-      },
-      {
-        role: 'user',
-        content: `${FEEDBACK_INTERPRETATION_PROMPT}\n\n## User Feedback:\n"${feedback}"\n\n## Current Scene Graph:\n\`\`\`json\n${JSON.stringify(sceneGraph, null, 2)}\n\`\`\`\n\n## Current Motion Variant (${currentVariant.variantType}):\n\`\`\`json\n${JSON.stringify(currentVariant, null, 2)}\n\`\`\``
-      }
-    ],
-    thinking: { type: 'disabled' }
-  });
-
-  const rawResponse = response.choices[0]?.message?.content || '';
-
   try {
-    const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('No JSON found in feedback response');
-    const result = JSON.parse(jsonMatch[0]) as FeedbackResult;
-    result.feedback = feedback;
-    return result;
+    const zai = await getZAI();
+
+    // Reduce payload size
+    const compactSceneGraph = {
+      layers: sceneGraph.layers?.map(l => ({ id: l.id, type: l.type, label: l.label, content: l.content, position: l.position })),
+      brandColors: sceneGraph.brandColors,
+    };
+
+    const compactVariant = {
+      variantType: currentVariant.variantType,
+      timeline: { totalDuration: currentVariant.timeline?.totalDuration },
+      layerAnimations: currentVariant.layerAnimations?.map(a => ({
+        layerId: a.layerId, type: a.type, duration: a.duration, delay: a.delay, easing: a.easing
+      })),
+    };
+
+    const response = await zai.chat.completions.create({
+      messages: [
+        {
+          role: 'assistant',
+          content: 'You are an expert motion graphics designer who interprets feedback into structured JSON edits. Always respond with valid JSON only.'
+        },
+        {
+          role: 'user',
+          content: `${FEEDBACK_INTERPRETATION_PROMPT}\n\n## User Feedback:\n"${feedback}"\n\n## Current Scene Graph:\n\`\`\`json\n${JSON.stringify(compactSceneGraph)}\n\`\`\`\n\n## Current Motion Variant (${currentVariant.variantType}):\n\`\`\`json\n${JSON.stringify(compactVariant)}\n\`\`\``
+        }
+      ],
+      thinking: { type: 'disabled' }
+    });
+
+    const rawResponse = response.choices[0]?.message?.content || '';
+
+    try {
+      const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON found in feedback response');
+      const result = JSON.parse(jsonMatch[0]) as FeedbackResult;
+      result.feedback = feedback;
+      return result;
+    } catch (parseError) {
+      console.error('Feedback interpretation parse error:', parseError);
+      return {
+        feedback,
+        interpretedIntent: {
+          original: feedback,
+          interpreted: feedback,
+          targetLayers: [],
+          action: 'adjust_animation',
+          parameters: {},
+        },
+        sceneGraphUpdate: null,
+        motionPlanUpdate: null,
+        applied: false,
+      };
+    }
   } catch (error) {
-    console.error('Feedback interpretation error:', error);
+    console.error('Feedback interpretation API error:', error);
     return {
       feedback,
       interpretedIntent: {
@@ -98,9 +129,10 @@ export async function applyFeedback(
   motionVariant: MotionVariant,
   feedbackResult: FeedbackResult
 ): Promise<{ updatedSceneGraph: SceneGraph; updatedMotionVariant: MotionVariant }> {
-  const zai = await getZAI();
+  try {
+    const zai = await getZAI();
 
-  const APPLY_PROMPT = `You are an expert motion graphics designer. Apply the following feedback edits to the scene graph and motion plan.
+    const APPLY_PROMPT = `You are an expert motion graphics designer. Apply the following feedback edits to the scene graph and motion plan.
 
 Return the COMPLETE updated scene graph and motion variant as valid JSON:
 {
@@ -108,32 +140,62 @@ Return the COMPLETE updated scene graph and motion variant as valid JSON:
   "updatedMotionVariant": { ... complete motion variant ... }
 }`;
 
-  const response = await zai.chat.completions.create({
-    messages: [
-      {
-        role: 'assistant',
-        content: 'You are an expert motion graphics designer. Always respond with valid JSON only.'
-      },
-      {
-        role: 'user',
-        content: `${APPLY_PROMPT}\n\n## Scene Graph:\n\`\`\`json\n${JSON.stringify(sceneGraph, null, 2)}\n\`\`\`\n\n## Motion Variant:\n\`\`\`json\n${JSON.stringify(motionVariant, null, 2)}\n\`\`\`\n\n## Feedback to Apply:\n\`\`\`json\n${JSON.stringify(feedbackResult, null, 2)}\n\`\`\``
-      }
-    ],
-    thinking: { type: 'disabled' }
-  });
-
-  const rawResponse = response.choices[0]?.message?.content || '';
-
-  try {
-    const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('No JSON found in apply feedback response');
-    const result = JSON.parse(jsonMatch[0]);
-    return {
-      updatedSceneGraph: result.updatedSceneGraph || sceneGraph,
-      updatedMotionVariant: result.updatedMotionVariant || motionVariant,
+    // Reduce payload size
+    const compactSceneGraph = {
+      layers: sceneGraph.layers?.map(l => ({ id: l.id, type: l.type, label: l.label, content: l.content, position: l.position, color: l.color, fontSize: l.fontSize, fontWeight: l.fontWeight, opacity: l.opacity, borderRadius: l.borderRadius })),
+      brandColors: sceneGraph.brandColors,
+      headline: sceneGraph.headline,
+      subheadline: sceneGraph.subheadline,
+      cta: sceneGraph.cta,
+      layout: sceneGraph.layout,
+      hierarchy: sceneGraph.hierarchy,
+      typography: sceneGraph.typography,
+      sceneGraph: sceneGraph.sceneGraph,
     };
+
+    const compactVariant = {
+      variantType: motionVariant.variantType,
+      name: motionVariant.name,
+      timeline: motionVariant.timeline,
+      layerAnimations: motionVariant.layerAnimations,
+      cameraMovement: motionVariant.cameraMovement,
+      transitions: motionVariant.transitions,
+      rationale: motionVariant.rationale,
+    };
+
+    const response = await zai.chat.completions.create({
+      messages: [
+        {
+          role: 'assistant',
+          content: 'You are an expert motion graphics designer. Always respond with valid JSON only.'
+        },
+        {
+          role: 'user',
+          content: `${APPLY_PROMPT}\n\n## Scene Graph:\n\`\`\`json\n${JSON.stringify(compactSceneGraph)}\n\`\`\`\n\n## Motion Variant:\n\`\`\`json\n${JSON.stringify(compactVariant)}\n\`\`\`\n\n## Feedback to Apply:\n\`\`\`json\n${JSON.stringify(feedbackResult)}\n\`\`\``
+        }
+      ],
+      thinking: { type: 'disabled' }
+    });
+
+    const rawResponse = response.choices[0]?.message?.content || '';
+
+    try {
+      const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON found in apply feedback response');
+      const result = JSON.parse(jsonMatch[0]);
+      return {
+        updatedSceneGraph: result.updatedSceneGraph || sceneGraph,
+        updatedMotionVariant: result.updatedMotionVariant || motionVariant,
+      };
+    } catch (parseError) {
+      console.error('Apply feedback parse error:', parseError);
+      return {
+        updatedSceneGraph: sceneGraph,
+        updatedMotionVariant: motionVariant,
+      };
+    }
   } catch (error) {
-    console.error('Apply feedback error:', error);
+    console.error('Apply feedback API error:', error);
     return {
       updatedSceneGraph: sceneGraph,
       updatedMotionVariant: motionVariant,

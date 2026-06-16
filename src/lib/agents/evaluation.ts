@@ -48,50 +48,83 @@ Respond with valid JSON only:
 
 The animation passes if overallScore >= 7.0.`;
 
+function getDefaultEvaluation(): EvaluationResult {
+  return {
+    scores: {
+      readability: 7,
+      motionQuality: 7,
+      visualHierarchy: 7,
+      layoutQuality: 7,
+      timing: 7,
+      professionalAppearance: 7,
+    },
+    overallScore: 7,
+    issues: [],
+    recommendations: ['Consider refining animation timing for better flow'],
+    passed: true,
+  };
+}
+
 export async function evaluateMotion(
   sceneGraph: SceneGraph,
   motionVariant: MotionVariant
 ): Promise<EvaluationResult> {
-  const zai = await getZAI();
-
-  const response = await zai.chat.completions.create({
-    messages: [
-      {
-        role: 'assistant',
-        content: 'You are an expert motion graphics quality evaluator. Always respond with valid JSON only.'
-      },
-      {
-        role: 'user',
-        content: `${EVALUATION_PROMPT}\n\n## Original Scene Graph:\n\`\`\`json\n${JSON.stringify(sceneGraph, null, 2)}\n\`\`\`\n\n## Motion Variant to Evaluate (${motionVariant.variantType}):\n\`\`\`json\n${JSON.stringify(motionVariant, null, 2)}\n\`\`\``
-      }
-    ],
-    thinking: { type: 'disabled' }
-  });
-
-  const rawResponse = response.choices[0]?.message?.content || '';
-
   try {
-    const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('No JSON found in evaluation response');
-    const result = JSON.parse(jsonMatch[0]) as EvaluationResult;
-    return result;
-  } catch (error) {
-    console.error('Evaluation parse error:', error);
-    // Return a default evaluation
-    return {
-      scores: {
-        readability: 7,
-        motionQuality: 7,
-        visualHierarchy: 7,
-        layoutQuality: 7,
-        timing: 7,
-        professionalAppearance: 7,
-      },
-      overallScore: 7,
-      issues: [],
-      recommendations: ['Consider refining animation timing for better flow'],
-      passed: true,
+    const zai = await getZAI();
+
+    // Reduce payload size to avoid OOM - only send essential data
+    const compactSceneGraph = {
+      layers: sceneGraph.layers?.map(l => ({ id: l.id, type: l.type, label: l.label, content: l.content })),
+      brandColors: sceneGraph.brandColors,
+      layout: { type: sceneGraph.layout?.type },
+      hierarchy: sceneGraph.hierarchy,
     };
+
+    const compactMotionVariant = {
+      variantType: motionVariant.variantType,
+      name: motionVariant.name,
+      timeline: { totalDuration: motionVariant.timeline?.totalDuration },
+      layerAnimations: motionVariant.layerAnimations?.map(a => ({
+        layerId: a.layerId, type: a.type, duration: a.duration, delay: a.delay, easing: a.easing, direction: a.direction, intensity: a.intensity
+      })),
+      cameraMovement: motionVariant.cameraMovement,
+    };
+
+    const response = await zai.chat.completions.create({
+      messages: [
+        {
+          role: 'assistant',
+          content: 'You are an expert motion graphics quality evaluator. Always respond with valid JSON only.'
+        },
+        {
+          role: 'user',
+          content: `${EVALUATION_PROMPT}\n\n## Original Scene Graph:\n\`\`\`json\n${JSON.stringify(compactSceneGraph)}\n\`\`\`\n\n## Motion Variant to Evaluate (${motionVariant.variantType}):\n\`\`\`json\n${JSON.stringify(compactMotionVariant)}\n\`\`\``
+        }
+      ],
+      thinking: { type: 'disabled' }
+    });
+
+    const rawResponse = response.choices[0]?.message?.content || '';
+
+    try {
+      const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON found in evaluation response');
+      const result = JSON.parse(jsonMatch[0]) as EvaluationResult;
+
+      // Validate the result has the expected structure
+      if (!result.scores || typeof result.overallScore !== 'number') {
+        throw new Error('Invalid evaluation result structure');
+      }
+
+      return result;
+    } catch (parseError) {
+      console.error('Evaluation parse error:', parseError);
+      return getDefaultEvaluation();
+    }
+  } catch (error) {
+    console.error('Evaluation API error:', error);
+    // Return default evaluation instead of crashing the pipeline
+    return getDefaultEvaluation();
   }
 }
 

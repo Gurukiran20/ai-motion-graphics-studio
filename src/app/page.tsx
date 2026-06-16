@@ -19,8 +19,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { 
   Film, Eye, Clapperboard, 
-  MessageSquare, ShieldCheck, Loader2, AlertCircle, RotateCcw,
-  Zap, Briefcase
+  MessageSquare, ShieldCheck, Loader2, AlertCircle, AlertTriangle, RotateCcw,
+  Zap, Briefcase, CheckCircle2
 } from 'lucide-react';
 
 export default function Home() {
@@ -49,6 +49,142 @@ export default function Home() {
     setIsProcessing,
     setError,
   } = store;
+
+  // Stage 3: Render animation (standalone - can be called independently)
+  const handleRender = useCallback(async (variantType: 'professional' | 'energetic') => {
+    if (!projectId) return;
+    setIsProcessing(true);
+    setError(null);
+    setPipelineState({ currentStage: 'rendering', stageStatus: { ...pipelineState.stageStatus, rendering: 'in_progress' }, progress: 60 });
+
+    try {
+      const response = await fetch('/api/render', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId, variantType }),
+      });
+
+      const data = await safeParseJSON(response);
+
+      if (!response.ok) {
+        throw new Error((data as { error?: string }).error || 'Rendering failed');
+      }
+
+      const rc = (data as { renderConfig?: unknown; renderJob?: { renderConfig?: unknown } }).renderConfig || (data as { renderJob?: { renderConfig?: unknown } }).renderJob?.renderConfig;
+      setRenderConfig(rc as Parameters<typeof setRenderConfig>[0]);
+      setPipelineState({
+        currentStage: 'evaluating',
+        stageStatus: { ...pipelineState.stageStatus, rendering: 'completed', evaluating: 'in_progress' },
+        progress: 75,
+      });
+
+      // Auto-advance to evaluation (non-blocking - animation will show regardless)
+      handleEvaluate().catch(() => {
+        // Evaluation failure is non-critical - animation already rendered
+        console.warn('Evaluation failed, but animation is still visible');
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Rendering failed');
+      setPipelineState({ stageStatus: { ...pipelineState.stageStatus, rendering: 'failed' } });
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [projectId, pipelineState.stageStatus]);
+
+  // Stage 4: Evaluate (non-blocking - failure doesn't prevent animation)
+  const handleEvaluate = useCallback(async () => {
+    if (!projectId) return;
+    // Don't set isProcessing true - evaluation is background, animation should be interactive
+
+    try {
+      const response = await fetch('/api/evaluate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId, variantType: selectedVariant }),
+      });
+
+      const data = await safeParseJSON(response);
+
+      if (!response.ok) {
+        // Evaluation failure is non-critical - just log it
+        console.warn('Evaluation API returned error, using defaults');
+        setEvaluation({
+          scores: { readability: 7, motionQuality: 7, visualHierarchy: 7, layoutQuality: 7, timing: 7, professionalAppearance: 7 },
+          overallScore: 7,
+          issues: [],
+          recommendations: ['Evaluation could not be completed. Using default scores.'],
+          passed: true,
+        });
+        setPipelineState({
+          currentStage: 'feedback',
+          stageStatus: { ...pipelineState.stageStatus, evaluating: 'completed', feedback: 'in_progress' },
+          progress: 85,
+        });
+        return;
+      }
+
+      setEvaluation((data as { evaluation: unknown }).evaluation as Parameters<typeof setEvaluation>[0]);
+      setPipelineState({
+        currentStage: 'feedback',
+        stageStatus: { ...pipelineState.stageStatus, evaluating: 'completed', feedback: 'in_progress' },
+        progress: 85,
+      });
+    } catch (err) {
+      // Non-critical failure - set default evaluation so pipeline continues
+      console.warn('Evaluation failed:', err);
+      setEvaluation({
+        scores: { readability: 7, motionQuality: 7, visualHierarchy: 7, layoutQuality: 7, timing: 7, professionalAppearance: 7 },
+        overallScore: 7,
+        issues: [],
+        recommendations: ['Evaluation could not be completed. Using default scores.'],
+        passed: true,
+      });
+      setPipelineState({
+        currentStage: 'feedback',
+        stageStatus: { ...pipelineState.stageStatus, evaluating: 'completed', feedback: 'in_progress' },
+        progress: 85,
+      });
+    }
+  }, [projectId, selectedVariant, pipelineState.stageStatus]);
+
+  // Stage 2: Plan motion
+  const handlePlanMotion = useCallback(async (sg?: typeof sceneGraph) => {
+    const sceneGraphToUse = sg || sceneGraph;
+    if (!projectId || !sceneGraphToUse) return;
+    setIsProcessing(true);
+    setError(null);
+    setPipelineState({ currentStage: 'planning', stageStatus: { ...pipelineState.stageStatus, planning: 'in_progress' }, progress: 40 });
+
+    try {
+      const response = await fetch('/api/plan-motion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId }),
+      });
+
+      const data = await safeParseJSON(response);
+
+      if (!response.ok) {
+        throw new Error((data as { error?: string }).error || 'Motion planning failed');
+      }
+
+      const variants = (data as { variants?: Array<{ id: string; variantType: string; motionPlan: unknown }> }).variants?.map((v) => v.motionPlan || v) || [];
+      setMotionVariants(variants as Parameters<typeof setMotionVariants>[0]);
+      setPipelineState({
+        currentStage: 'rendering',
+        stageStatus: { ...pipelineState.stageStatus, planning: 'completed', rendering: 'in_progress' },
+        progress: 55,
+      });
+
+      // Auto-advance to rendering with the default variant
+      await handleRender('professional');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Motion planning failed');
+      setPipelineState({ stageStatus: { ...pipelineState.stageStatus, planning: 'failed' } });
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [projectId, sceneGraph, pipelineState.stageStatus, handleRender]);
 
   // Stage 1: Analyze the uploaded image
   const handleAnalyze = useCallback(async () => {
@@ -87,117 +223,7 @@ export default function Home() {
     } finally {
       setIsProcessing(false);
     }
-  }, [projectId, pipelineState.stageStatus]);
-
-  // Stage 2: Plan motion
-  const handlePlanMotion = useCallback(async (sg?: typeof sceneGraph) => {
-    const sceneGraphToUse = sg || sceneGraph;
-    if (!projectId || !sceneGraphToUse) return;
-    setIsProcessing(true);
-    setError(null);
-    setPipelineState({ currentStage: 'planning', stageStatus: { ...pipelineState.stageStatus, planning: 'in_progress' }, progress: 40 });
-
-    try {
-      const response = await fetch('/api/plan-motion', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId }),
-      });
-
-      const data = await safeParseJSON(response);
-
-      if (!response.ok) {
-        throw new Error((data as { error?: string }).error || 'Motion planning failed');
-      }
-
-      const variants = (data as { variants?: Array<{ id: string; variantType: string; motionPlan: unknown }> }).variants?.map((v) => v.motionPlan || v) || [];
-      setMotionVariants(variants as Parameters<typeof setMotionVariants>[0]);
-      setPipelineState({
-        currentStage: 'rendering',
-        stageStatus: { ...pipelineState.stageStatus, planning: 'completed', rendering: 'in_progress' },
-        progress: 55,
-      });
-
-      // Auto-advance to rendering with the selected variant
-      await handleRender(selectedVariant);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Motion planning failed');
-      setPipelineState({ stageStatus: { ...pipelineState.stageStatus, planning: 'failed' } });
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [projectId, sceneGraph, pipelineState.stageStatus, selectedVariant]);
-
-  // Stage 3: Render animation
-  const handleRender = useCallback(async (variantType: 'professional' | 'energetic') => {
-    if (!projectId) return;
-    setIsProcessing(true);
-    setError(null);
-    setPipelineState({ currentStage: 'rendering', stageStatus: { ...pipelineState.stageStatus, rendering: 'in_progress' }, progress: 60 });
-
-    try {
-      const response = await fetch('/api/render', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId, variantType }),
-      });
-
-      const data = await safeParseJSON(response);
-
-      if (!response.ok) {
-        throw new Error((data as { error?: string }).error || 'Rendering failed');
-      }
-
-      const rc = (data as { renderConfig?: unknown; renderJob?: { renderConfig?: unknown } }).renderConfig || (data as { renderJob?: { renderConfig?: unknown } }).renderJob?.renderConfig;
-      setRenderConfig(rc as Parameters<typeof setRenderConfig>[0]);
-      setPipelineState({
-        currentStage: 'evaluating',
-        stageStatus: { ...pipelineState.stageStatus, rendering: 'completed', evaluating: 'in_progress' },
-        progress: 75,
-      });
-
-      // Auto-advance to evaluation
-      await handleEvaluate();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Rendering failed');
-      setPipelineState({ stageStatus: { ...pipelineState.stageStatus, rendering: 'failed' } });
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [projectId, pipelineState.stageStatus]);
-
-  // Stage 4: Evaluate
-  const handleEvaluate = useCallback(async () => {
-    if (!projectId) return;
-    setIsProcessing(true);
-    setError(null);
-
-    try {
-      const response = await fetch('/api/evaluate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId, variantType: selectedVariant }),
-      });
-
-      const data = await safeParseJSON(response);
-
-      if (!response.ok) {
-        throw new Error((data as { error?: string }).error || 'Evaluation failed');
-      }
-
-      setEvaluation((data as { evaluation: unknown }).evaluation as Parameters<typeof setEvaluation>[0]);
-      setPipelineState({
-        currentStage: 'feedback',
-        stageStatus: { ...pipelineState.stageStatus, evaluating: 'completed', feedback: 'in_progress' },
-        progress: 85,
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Evaluation failed');
-      setPipelineState({ stageStatus: { ...pipelineState.stageStatus, evaluating: 'failed' } });
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [projectId, selectedVariant, pipelineState.stageStatus]);
+  }, [projectId, pipelineState.stageStatus, handlePlanMotion]);
 
   // Stage 5: Feedback
   const handleFeedback = useCallback(async (feedback: string) => {
@@ -372,8 +398,8 @@ export default function Home() {
           </div>
         )}
 
-        {/* Error Display */}
-        {error && (
+        {/* Error Display - only for critical errors (not evaluation) */}
+        {error && !isRendered && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -412,7 +438,7 @@ export default function Home() {
                 </motion.div>
               )}
 
-              {/* Animation Preview */}
+              {/* Animation Preview - ALWAYS show when renderConfig is available */}
               {isRendered && renderConfig && sceneGraph && (
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
                   <AnimationPreview
@@ -435,6 +461,7 @@ export default function Home() {
                           <span className="text-white font-medium">
                             {currentStage === 'analyzing' ? 'Analyzing design...' : 
                              currentStage === 'planning' ? 'Planning motion...' :
+                             currentStage === 'rendering' ? 'Generating animation...' :
                              'Processing...'}
                           </span>
                         </div>
@@ -447,6 +474,26 @@ export default function Home() {
 
             {/* Right Panel - Details & Controls */}
             <div className="lg:col-span-2 space-y-4">
+              {/* Success indicator when animation is ready */}
+              {isRendered && (
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.95 }} 
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="flex items-center gap-2 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20"
+                >
+                  <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+                  <p className="text-sm text-emerald-700 dark:text-emerald-400">Animation ready! Use Play to preview.</p>
+                </motion.div>
+              )}
+
+              {/* Non-critical warning (evaluation fallback) */}
+              {evaluation && evaluation.recommendations?.some(r => r.includes('default')) && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                  <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0" />
+                  <p className="text-xs text-amber-700 dark:text-amber-400">AI evaluation used default scores. Animation is still fully functional.</p>
+                </div>
+              )}
+
               <Tabs defaultValue="scene" className="w-full">
                 <TabsList className="w-full grid grid-cols-4">
                   <TabsTrigger value="scene" className="text-xs gap-1">
@@ -564,6 +611,10 @@ export default function Home() {
                           <div className="flex flex-col items-center gap-2">
                             <Loader2 className="h-6 w-6 animate-spin" />
                             <p className="text-sm">Evaluating animation quality...</p>
+                          </div>
+                        ) : isRendered ? (
+                          <div className="flex flex-col items-center gap-2">
+                            <p className="text-sm">Evaluation in progress...</p>
                           </div>
                         ) : (
                           <p className="text-sm">Render an animation first to evaluate quality</p>

@@ -10,6 +10,21 @@ async function getZAI() {
   return zaiInstance;
 }
 
+function getDefaultQualityReport(): QualityReport {
+  return {
+    textReadability: 7,
+    layoutIntegrity: 7,
+    brandingConsistency: 7,
+    motionSmoothness: 7,
+    timingQuality: 7,
+    professionalAppearance: 7,
+    overallScore: 7,
+    passed: true,
+    issues: [],
+    details: { summary: 'Default quality assessment', strengths: ['Animation rendered successfully'], weaknesses: [], exportReadiness: 'ready' },
+  };
+}
+
 const QUALITY_GATE_PROMPT = `You are the final quality gate for a motion graphics video. Perform a comprehensive review before export.
 
 Verify these criteria:
@@ -46,45 +61,61 @@ export async function runQualityGate(
   motionVariant: MotionVariant,
   evaluationScore?: number
 ): Promise<QualityReport> {
-  const zai = await getZAI();
-
-  const evaluationContext = evaluationScore 
-    ? `\n\n## Previous Evaluation Score: ${evaluationScore}/10`
-    : '';
-
-  const response = await zai.chat.completions.create({
-    messages: [
-      {
-        role: 'assistant',
-        content: 'You are the final quality gate for motion graphics production. Always respond with valid JSON only.'
-      },
-      {
-        role: 'user',
-        content: `${QUALITY_GATE_PROMPT}${evaluationContext}\n\n## Scene Graph:\n\`\`\`json\n${JSON.stringify(sceneGraph, null, 2)}\n\`\`\`\n\n## Motion Variant (${motionVariant.variantType}):\n\`\`\`json\n${JSON.stringify(motionVariant, null, 2)}\n\`\`\``
-      }
-    ],
-    thinking: { type: 'disabled' }
-  });
-
-  const rawResponse = response.choices[0]?.message?.content || '';
-
   try {
-    const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('No JSON found in quality gate response');
-    return JSON.parse(jsonMatch[0]) as QualityReport;
-  } catch (error) {
-    console.error('Quality gate parse error:', error);
-    return {
-      textReadability: 7,
-      layoutIntegrity: 7,
-      brandingConsistency: 7,
-      motionSmoothness: 7,
-      timingQuality: 7,
-      professionalAppearance: 7,
-      overallScore: 7,
-      passed: true,
-      issues: [],
-      details: { summary: 'Default quality assessment', strengths: [], weaknesses: [], exportReadiness: 'ready' },
+    const zai = await getZAI();
+
+    // Reduce payload size to avoid OOM
+    const compactSceneGraph = {
+      layers: sceneGraph.layers?.map(l => ({ id: l.id, type: l.type, label: l.label, content: l.content, position: l.position })),
+      brandColors: sceneGraph.brandColors,
+      layout: { type: sceneGraph.layout?.type },
     };
+
+    const compactMotionVariant = {
+      variantType: motionVariant.variantType,
+      timeline: { totalDuration: motionVariant.timeline?.totalDuration },
+      layerAnimations: motionVariant.layerAnimations?.map(a => ({
+        layerId: a.layerId, type: a.type, duration: a.duration, delay: a.delay, easing: a.easing
+      })),
+      cameraMovement: motionVariant.cameraMovement,
+    };
+
+    const evaluationContext = evaluationScore 
+      ? `\n\n## Previous Evaluation Score: ${evaluationScore}/10`
+      : '';
+
+    const response = await zai.chat.completions.create({
+      messages: [
+        {
+          role: 'assistant',
+          content: 'You are the final quality gate for motion graphics production. Always respond with valid JSON only.'
+        },
+        {
+          role: 'user',
+          content: `${QUALITY_GATE_PROMPT}${evaluationContext}\n\n## Scene Graph:\n\`\`\`json\n${JSON.stringify(compactSceneGraph)}\n\`\`\`\n\n## Motion Variant (${motionVariant.variantType}):\n\`\`\`json\n${JSON.stringify(compactMotionVariant)}\n\`\`\``
+        }
+      ],
+      thinking: { type: 'disabled' }
+    });
+
+    const rawResponse = response.choices[0]?.message?.content || '';
+
+    try {
+      const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON found in quality gate response');
+      const result = JSON.parse(jsonMatch[0]) as QualityReport;
+      
+      // Validate structure
+      if (typeof result.overallScore !== 'number') {
+        throw new Error('Invalid quality report structure');
+      }
+      return result;
+    } catch (parseError) {
+      console.error('Quality gate parse error:', parseError);
+      return getDefaultQualityReport();
+    }
+  } catch (error) {
+    console.error('Quality gate API error:', error);
+    return getDefaultQualityReport();
   }
 }

@@ -11,6 +11,7 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '50mb',
     },
   },
+  serverExternalPackages: ['sharp', 'canvas'],
 };
 
 export default nextConfig;

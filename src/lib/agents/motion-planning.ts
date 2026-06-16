@@ -123,6 +123,24 @@ export async function planMotion(sceneGraph: SceneGraph): Promise<MotionPlan> {
   const zai = await getZAI();
 
   try {
+    // Compact the scene graph to reduce payload size and avoid OOM
+    const compactSceneGraph = {
+      headline: sceneGraph.headline,
+      subheadline: sceneGraph.subheadline,
+      cta: sceneGraph.cta,
+      logo: sceneGraph.logo,
+      layers: sceneGraph.layers?.map(l => ({
+        id: l.id, type: l.type, label: l.label, content: l.content,
+        position: l.position, zIndex: l.zIndex, color: l.color,
+        fontSize: l.fontSize, fontWeight: l.fontWeight, opacity: l.opacity,
+        borderRadius: l.borderRadius,
+      })),
+      hierarchy: sceneGraph.hierarchy,
+      brandColors: sceneGraph.brandColors,
+      layout: sceneGraph.layout,
+      sceneGraph: sceneGraph.sceneGraph,
+    };
+
     const response = await zai.chat.completions.create({
       messages: [
         {
@@ -131,7 +149,7 @@ export async function planMotion(sceneGraph: SceneGraph): Promise<MotionPlan> {
         },
         {
           role: 'user',
-          content: `${MOTION_PLANNING_PROMPT}\n\n## Scene Graph to Animate:\n\`\`\`json\n${JSON.stringify(sceneGraph, null, 2)}\n\`\`\``
+          content: `${MOTION_PLANNING_PROMPT}\n\n## Scene Graph to Animate:\n\`\`\`json\n${JSON.stringify(compactSceneGraph)}\n\`\`\``
         }
       ],
       thinking: { type: 'disabled' }

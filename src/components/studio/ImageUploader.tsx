@@ -26,14 +26,30 @@ export function ImageUploader() {
     reader.onload = (e) => setPreview(e.target?.result as string);
     reader.readAsDataURL(file);
 
-    // Upload to server
+    // Upload to server using base64 JSON (more reliable than multipart form data)
     try {
-      const formData = new FormData();
-      formData.append('image', file);
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result as string);
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+      
+      const imageBase64 = await base64Promise;
+
+      // Strip the data URL prefix to avoid server issues with colons in body
+      const base64Data = imageBase64.includes(',') 
+        ? imageBase64.split(',')[1] 
+        : imageBase64;
 
       const response = await fetch('/api/upload', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageBase64: base64Data,
+          mimeType: file.type || 'image/png',
+          name: file.name,
+        }),
       });
 
       const data = await safeParseJSON<{ projectId?: string; imageUrl?: string; name?: string; error?: string }>(response);
